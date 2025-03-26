@@ -1,0 +1,53 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Git style
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-vcs-permalinks
+      - id: forbid-new-submodules
+
+      # Common errors
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+
+      # Cross platform
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.76.1
+    hooks:
+      - id: terraform_fmt
+        exclude: "{{cookiecutter\.__folder_name}}/"
+      - id: terraform_docs
+        exclude: "{{cookiecutter\.__folder_name}}/"
+        stages: [ manual ]
+      - id: terraform_validate
+        exclude: "{{cookiecutter\.__folder_name}}/"
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+          - --tf-init-args=-backend=false
+# Disabling the GHA checks, to produce consistent results as in the CI pipeline which runs in module directory
+      - id: terraform_checkov
+        exclude: "{{cookiecutter\.__folder_name}}/"
+        stages: [ manual ]
+        args: [
+            "--args=-d .",
+          ]
+      - id: terraform_tflint
+        exclude: "{{cookiecutter\.__folder_name}}/"
+        stages: [ manual ]
+        args:
+          - >
+            --args=--disable-rule=terraform_module_pinned_source
+      - id: terraform_tfsec
+        exclude: "{{cookiecutter\.__folder_name}}/"
+        stages: [ manual ]

@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - run: |
+         echo "Extract scope from commit message title"
+         scope=$(echo "${{ github.event.head_commit.message }}" |head -1| cut -f 1 -d ")" | cut -f 2 -d "(")
+         echo scope=$scope >> $GITHUB_ENV
+
+      - name: Check scope
+        id: check-scope
+        run: |
+          if ! [[ ${{ env.scope}} =~ workflows|pre-commit|none|docs ]]; then
+             echo "scope_match=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: copy package.json
+        if: steps.check-scope.outputs.scope_match == 'true'
+        run: |
+          cp -r package.json ${{ env.scope }}/package.json
+
+      - name: Release
+        if: steps.check-scope.outputs.scope_match == 'true'
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: v23.0.0
+          branches: |
+            [
+              'main'
+            ]
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@7.0.2
+          tag_format: ${{ env.scope }}-v${version}
+          extends: |
+            semantic-release-commit-filter@1.0.2
+          working_directory: ${{ env.scope }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

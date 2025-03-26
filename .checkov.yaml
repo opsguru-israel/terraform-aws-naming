@@ -1,0 +1,4 @@
+skip-check:
+  - CKV_TF_1
+skip-path:
+  - .github/*

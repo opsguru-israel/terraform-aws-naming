@@ -1,0 +1,5 @@
+pytest==7.4.4
+tftest==1.8.5
+marko==2.0.2
+checkov==3.2.91
+python-hcl2==4.3.5

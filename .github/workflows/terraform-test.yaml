@@ -1,0 +1,149 @@
+name: Test Terraform
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  detect-changed-module:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Get updated module
+        id: changed-files
+        uses: tj-actions/changed-files@v41.1.1
+        with:
+          json: true
+          dir_names: true
+          dir_names_max_depth: 1
+          files_ignore: |
+            .github/**
+            testing/**
+      - id: set-matrix
+        run: |
+          # If no subfolder is detected, default to the repository root (".")
+          changed_list=$(echo "${{ steps.changed-files.outputs.all_changed_files }}" | tr -d '[]' | sed 's/,/ /g')
+          if [ -z "$changed_list" ]; then
+            changed_list="."
+          fi
+          echo "matrix={\"module\":\"$changed_list\"}" >> "$GITHUB_OUTPUT"
+          echo "changed_modules=$changed_list" >> "$GITHUB_OUTPUT"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      changed_modules: ${{ steps.set-matrix.outputs.changed_modules }}
+
+  terraform-docs:
+    needs: detect-changed-module
+    if: ${{ needs.detect-changed-module.outputs.changed_modules != '' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.detect-changed-module.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Render terraform docs and push changes back to PR
+        uses: terraform-docs/gh-actions@v1.0.0
+        with:
+          working-dir: ${{ matrix.module }}
+          output-file: README.md
+          output-method: inject
+          git-push: "true"
+
+  checkov:
+    needs: detect-changed-module
+    if: ${{ needs.detect-changed-module.outputs.changed_modules != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.detect-changed-module.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+      - name: Test modules with Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          framework: terraform
+          directory: ${{ matrix.module }}
+          config_file: .checkov.yaml
+
+  tflint:
+    needs: detect-changed-module
+    if: ${{ needs.detect-changed-module.outputs.changed_modules != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.detect-changed-module.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+      - uses: terraform-linters/setup-tflint@v3
+        name: Setup TFLint
+        with:
+          tflint_version: v0.44.1
+      - run: |
+          tflint --init
+          tflint -f compact
+
+  tfsec:
+    needs: detect-changed-module
+    if: ${{ needs.detect-changed-module.outputs.changed_modules != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.detect-changed-module.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: ${{ matrix.module }}
+
+  tftest:
+    needs: detect-changed-module
+    if: ${{ needs.detect-changed-module.outputs.changed_modules != '' }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      PYTEST_ADDOPTS: "--color=yes"
+      PYTHON_VERSION: "3.10"
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.detect-changed-module.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - uses: hashicorp/setup-terraform@v3.0.0
+
+      - name: install python modules
+        run: |
+          xargs -L 1 pip install --disable-pip-version-check < .github/terraform-test-requirements.txt
+      - name: run tftest
+        run: |
+          pytest -vvrsA --log-cli-level=INFO ${{ matrix.module }}/tests/
